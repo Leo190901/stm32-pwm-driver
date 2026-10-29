@@ -1,0 +1,23 @@
+# Build-Verzeichnisse
+Debug/
+Release/
+build/
+
+# Kompilierte Dateien
+*.o
+*.d
+*.elf
+*.hex
+*.bin
+*.map
+*.list
+*.su
+
+# Temporäre Dateien
+*.tmp
+*.bak
+*~
+
+# Betriebssystem
+.DS_Store
+Thumbs.db
