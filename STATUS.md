@@ -1,15 +1,48 @@
 # Project Status
 
-**Last updated:** 2026-11-14
+**Last updated:** 2026-11-15
 **Current phase:** Driver implementation, step 1 (first PWM output on TIM2_CH1 / PA5)
 
 ## Summary
 
-The timer initialization and the public API for step 1 are done and committed.
-The channel configuration (`PWM_InitChannel`), `PWM_Start` and the demo in
-`main.c` are not implemented yet, so the firmware does not produce a PWM signal yet.
+Timer initialization, the public API and the channel configuration
+(`PWM_InitChannel`, TIM2_CH1 / PA5 only) are implemented. `PWM_Start` and the
+demo in `main.c` are not implemented yet, so the firmware does not produce a PWM signal yet.
 
 ## Work log
+
+### 2026-11-15
+
+**`PWM_InitChannel` (`Src/pwm.c`)**
+- GPIO: `RCC_AHB1ENR_GPIOAEN`, PA5 `MODER` = 10 (AF), `AFR[0]` AFSEL5 = AF1 (TIM2_CH1).
+  Both fields are cleared before being set (read-modify-write).
+- Output compare CH1: `CC1S` = 00 (output), `OC1M` = 110 (PWM mode 1), `OC1PE` = 1 (CCR1 preload).
+- `CCR1 = ((ARR + 1) * duty_permille + 500) / 1000`, then `EGR.UG` to load the preload.
+  UG is only safe because the counter is not running yet; `PWM_SetDuty` must not use it,
+  because UG resets CNT for all channels of the timer (REQ-013).
+- Validation (REQ-014), in this order, all before the first register write:
+  1. `config == NULL` → `PWM_NULL_POINTER`
+  2. timer not TIM1..TIM4 → `PWM_INVALID_TIMER`
+  3. channel not `PWM_CHANNEL_1..4` → `PWM_INVALID_CHANNEL`
+  4. not TIM2 + CH1 (no pin mapping yet, CON-004) → `PWM_INVALID_CHANNEL`
+  5. `duty_permille > 1000` → `PWM_INVALID_DUTY`
+  - Decision: an unmapped but valid timer/channel returns `PWM_INVALID_CHANNEL` (as the
+    `pwm.h` comment says), so `PWM_INVALID_TIMER` keeps meaning "not a supported timer".
+  - Check 4 must be timer **or** channel mismatch; otherwise e.g. `{TIM2, CH2}` would configure CH1.
+- CCR1 checked on the host at 1 Hz (PSC 244, ARR 65305):
+
+  | Duty   | CCR1  |
+  |--------|-------|
+  | 0 %    | 0     |
+  | 25 %   | 16327 |
+  | 50 %   | 32653 |
+  | 75 %   | 48980 |
+  | 100 %  | 65306 (= ARR + 1, always HIGH) |
+
+- Build OK (GCC 12.2, only the expected FPU `#warning`). The driver functions do not
+  appear in the binary yet (FLASH 744 B): `main()` does not call them, so `--gc-sections` removes them.
+- `build/` had been configured from `/workspace` (stale CMake cache) and was recreated.
+  If `cmake --build build` fails with "rebuilding 'build.ninja'", delete `build/` and configure again.
 
 ### 2026-11-14
 
@@ -62,7 +95,7 @@ The channel configuration (`PWM_InitChannel`), `PWM_Start` and the demo in
 
 - [x] Part 1: `PWM_InitTimer`: ARPE, UG, CMSIS names, clock constant
 - [x] Part 2: API in `pwm.h`: `duty_permille`, status codes, declarations
-- [ ] Part 3: `PWM_InitChannel` (CH1 / PA5 only for now)
+- [x] Part 3: `PWM_InitChannel` (CH1 / PA5 only for now)
   - validate all parameters before touching any register (REQ-014)
   - `RCC->AHB1ENR |= GPIOAEN`, PA5 `MODER` = alternate function, `AFR[0]` = AF1
   - `CCMR1`: CC1S = 00 (output), OC1M = 110 (PWM mode 1), OC1PE = 1 (preload)

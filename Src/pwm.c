@@ -92,3 +92,73 @@ PWM_Status_t PWM_InitTimer(const PWM_TimerConfig_t *config)
 
 }
 
+PWM_Status_t PWM_InitChannel(const PWM_ChannelConfig_t *config)
+{
+	// validate config (REQ-014: no register may be touched before this passes)
+	// Step 1 supports only TIM2_CH1 on PA5 (AF1); more mappings follow later (CON-004).
+	if (config == NULL)
+	{
+		return PWM_NULL_POINTER;
+	}
+
+	// not one of the supported timers at all
+	if (config->timer != TIM1 &&
+	    config->timer != TIM2 &&
+	    config->timer != TIM3 &&
+	    config->timer != TIM4)
+	{
+		return PWM_INVALID_TIMER;
+	}
+
+	// channel number out of range
+	if (config->channel < PWM_CHANNEL_1 || config->channel > PWM_CHANNEL_4)
+	{
+		return PWM_INVALID_CHANNEL;
+	}
+
+	// valid timer/channel, but no pin mapping implemented yet (CON-004):
+	// the code below only handles TIM2_CH1 -> PA5 / AF1 / CCR1
+	if (config->timer != TIM2 || config->channel != PWM_CHANNEL_1)
+	{
+		return PWM_INVALID_CHANNEL;
+	}
+
+	if (config->duty_permille > PWM_DUTY_MAX_PERMILLE)
+	{
+		return PWM_INVALID_DUTY;
+	}
+
+	TIM_TypeDef *timer = config->timer;
+
+	// --- GPIO: PA5 -> alternate function 1 (TIM2_CH1), RM0368 section 8.4 ---
+	// enable GPIOA clock on AHB1, otherwise writes to GPIOA are ignored
+	RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
+
+	// MODER5 = 10 (alternate function): clear the 2-bit field, then set it
+	GPIOA->MODER &= ~GPIO_MODER_MODER5;
+	GPIOA->MODER |= GPIO_MODER_MODER5_1;
+
+	// AFRL5 = 0001 (AF1 = TIM1/TIM2), see datasheet DS10086 table 9
+	GPIOA->AFR[0] &= ~GPIO_AFRL_AFSEL5;
+	GPIOA->AFR[0] |= (1UL << GPIO_AFRL_AFSEL5_Pos);
+
+	// --- Output compare unit CH1, RM0368 section 13.4.7 (TIM2..5 CCMR1) ---
+	// CC1S = 00 -> channel is an output
+	// OC1M = 110 -> PWM mode 1: output HIGH while CNT < CCR1
+	// OC1PE = 1 -> CCR1 is preloaded, new duty applies at the next update event (REQ-009)
+	timer->CCMR1 &= ~(TIM_CCMR1_CC1S | TIM_CCMR1_OC1M);
+	timer->CCMR1 |= TIM_CCMR1_OC1M_2 | TIM_CCMR1_OC1M_1 | TIM_CCMR1_OC1PE;
+
+	// compare value: CCR1 = (ARR + 1) * duty / 1000, rounded to nearest.
+	// duty 1000 -> CCR1 = ARR + 1 > CNT always -> 100 % HIGH; duty 0 -> 0 % HIGH.
+	// Max intermediate: 65536 * 1000 = 65.5 M, fits easily into uint32_t.
+	uint32_t period = timer->ARR + 1UL;
+	timer->CCR1 = (period * config->duty_permille + 500UL) / 1000UL;
+
+	// UG: copy the preloaded CCR1 into the active register now.
+	// Safe here because the counter is not running yet (it also resets CNT).
+	timer->EGR = TIM_EGR_UG;
+
+	return PWM_OK;
+}
+
