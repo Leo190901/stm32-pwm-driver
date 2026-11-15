@@ -5,6 +5,7 @@
  *      Author: leonp
  */
 #include "pwm.h"
+#include <stdbool.h>
 #include <stddef.h>
 
 /*
@@ -16,6 +17,20 @@
  * If the clock tree is changed later, this value must be updated.
  */
 #define PWM_TIMER_CLOCK_HZ   16000000U
+
+/*
+ * True if 'timer' is one of the timers this driver supports (REQ-001).
+ * NULL is rejected too, because it does not match any TIMx base address.
+ * Only reads the pointer value, never the peripheral -> safe to call
+ * before any validation (REQ-014).
+ */
+static bool pwm_is_supported_timer(const TIM_TypeDef *timer)
+{
+	return (timer == TIM1) ||
+	       (timer == TIM2) ||
+	       (timer == TIM3) ||
+	       (timer == TIM4);
+}
 
 PWM_Status_t PWM_InitTimer(const PWM_TimerConfig_t *config)
 {
@@ -30,10 +45,7 @@ PWM_Status_t PWM_InitTimer(const PWM_TimerConfig_t *config)
 	    return PWM_INVALID_FREQUENCY;
 	}
 
-	if (config->timer != TIM1 &&
-	    config->timer != TIM2 &&
-	    config->timer != TIM3 &&
-	    config->timer != TIM4)
+	if (!pwm_is_supported_timer(config->timer))
 	{
 	    return PWM_INVALID_TIMER;
 	}
@@ -102,10 +114,7 @@ PWM_Status_t PWM_InitChannel(const PWM_ChannelConfig_t *config)
 	}
 
 	// not one of the supported timers at all
-	if (config->timer != TIM1 &&
-	    config->timer != TIM2 &&
-	    config->timer != TIM3 &&
-	    config->timer != TIM4)
+	if (!pwm_is_supported_timer(config->timer))
 	{
 		return PWM_INVALID_TIMER;
 	}
@@ -158,6 +167,44 @@ PWM_Status_t PWM_InitChannel(const PWM_ChannelConfig_t *config)
 	// UG: copy the preloaded CCR1 into the active register now.
 	// Safe here because the counter is not running yet (it also resets CNT).
 	timer->EGR = TIM_EGR_UG;
+
+	return PWM_OK;
+}
+
+PWM_Status_t PWM_Start(TIM_TypeDef *timer, uint8_t channel)
+{
+	// validate parameters (REQ-014: no register may be touched before this passes)
+	// Same rules and codes as PWM_InitChannel.
+	// No separate NULL check needed: pwm_is_supported_timer(NULL) is false.
+	if (!pwm_is_supported_timer(timer))
+	{
+		return PWM_INVALID_TIMER;
+	}
+
+	if (channel < PWM_CHANNEL_1 || channel > PWM_CHANNEL_4)
+	{
+		return PWM_INVALID_CHANNEL;
+	}
+
+	// valid timer/channel, but only TIM2_CH1 is mapped so far (CON-004).
+	// '||' matters: {TIM2, CH2} or {TIM3, CH1} must both be rejected.
+	if (timer != TIM2 || channel != PWM_CHANNEL_1)
+	{
+		return PWM_INVALID_CHANNEL;
+	}
+
+	// --- Enable the channel output, RM0368 section 13.4.9 (TIMx_CCER) ---
+	// CC1E = 1 -> the OC1 signal is driven onto the pin (via the GPIO AF set in PWM_InitChannel).
+	// CC1P stays 0 -> active high: HIGH while CNT < CCR1 (PWM mode 1).
+	// Read-modify-write (|=): CCER holds the enable bits of all 4 channels,
+	// a plain '=' would switch off the other channels (REQ-013).
+	timer->CCER |= TIM_CCER_CC1E;
+
+	// --- Start the counter, RM0368 section 13.4.1 (TIMx_CR1) ---
+	// Done after CC1E, so the very first period already appears on the pin.
+	// |= keeps ARPE (set in PWM_InitTimer). Setting CEN again on a running
+	// timer is harmless, so starting a second channel later is fine.
+	timer->CR1 |= TIM_CR1_CEN;
 
 	return PWM_OK;
 }

@@ -73,6 +73,8 @@ PWM_Status_t PWM_InitChannel(const PWM_ChannelConfig_t *config);
 
 /*
  * Enable the channel output and start the timer counter.
+ * PWM_InitTimer() and PWM_InitChannel() must have been called before.
+ * On error, no register is modified (REQ-014).
  */
 PWM_Status_t PWM_Start(TIM_TypeDef *timer, uint8_t channel);
 
