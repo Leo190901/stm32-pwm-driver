@@ -1,17 +1,34 @@
 # Project Status
 
 **Last updated:** 2026-11-15
-**Current phase:** Driver implementation, step 1 (first PWM output on TIM2_CH1 / PA5)
+**Current phase:** Driver implementation, step 1 (first PWM output on TIM2_CH1 / PA5), Part 5 next
 
 ## Summary
 
-Timer initialization, the public API and the channel configuration
-(`PWM_InitChannel`, TIM2_CH1 / PA5 only) are implemented. `PWM_Start` and the
-demo in `main.c` are not implemented yet, so the firmware does not produce a PWM signal yet.
+Timer initialization, the public API, the channel configuration and `PWM_Start`
+(TIM2_CH1 / PA5 only) are implemented. The demo in `main.c` is not written yet, so
+the firmware does not produce a PWM signal yet. **Next: Part 5 (demo in `main.c`).**
 
 ## Work log
 
-### 2026-11-15
+### 2026-11-15 (Part 4)
+
+**`PWM_Start` (`Src/pwm.c`)**
+- Validation (REQ-014), same order/codes as `PWM_InitChannel`, before any register write:
+  1. timer not TIM1..TIM4 (incl. `NULL`) → `PWM_INVALID_TIMER`
+  2. channel not `PWM_CHANNEL_1..4` → `PWM_INVALID_CHANNEL`
+  3. not TIM2 + CH1 → `PWM_INVALID_CHANNEL` (CON-004)
+- `CCER |= CC1E` (output on pin, CC1P = 0 active high), **then** `CR1 |= CEN`,
+  so the first period already appears on the pin. Both read-modify-write (REQ-013).
+- New `static bool pwm_is_supported_timer()`: the TIM1..TIM4 rule now lives in one
+  place and is used by all three API functions. It only compares pointer values and never
+  reads the peripheral, so it is safe before validation.
+- The "only TIM2/CH1 mapped" check is still duplicated in `InitChannel` and `Start`.
+  It will be replaced by a pin-mapping table lookup in next step 4.
+- Build OK, FLASH still 744 B (driver not called from `main` yet).
+- Commit: `ac00d44 feat: implement PWM_Start for TIM2_CH1`
+
+### 2026-11-15 (Part 3)
 
 **`PWM_InitChannel` (`Src/pwm.c`)**
 - GPIO: `RCC_AHB1ENR_GPIOAEN`, PA5 `MODER` = 10 (AF), `AFR[0]` AFSEL5 = AF1 (TIM2_CH1).
@@ -100,7 +117,7 @@ demo in `main.c` are not implemented yet, so the firmware does not produce a PWM
   - `RCC->AHB1ENR |= GPIOAEN`, PA5 `MODER` = alternate function, `AFR[0]` = AF1
   - `CCMR1`: CC1S = 00 (output), OC1M = 110 (PWM mode 1), OC1PE = 1 (preload)
   - `CCR1 = ((ARR + 1) * duty_permille + 500) / 1000` (50 % at 1 Hz → 32653), then `EGR.UG`
-- [ ] Part 4: `PWM_Start`: `CCER.CC1E`, then `CR1.CEN`
+- [x] Part 4: `PWM_Start`: `CCER.CC1E`, then `CR1.CEN`
 - [ ] Part 5: demo in `main.c`: 1 Hz with 50 % duty, so LD2 blinks
 - [ ] Hardware check:
   - LD2 blinks at 1 Hz
