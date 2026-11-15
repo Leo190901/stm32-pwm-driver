@@ -39,3 +39,14 @@ There is no test framework or linter. Verification is done on hardware (LD2 / Pu
 
 - `.settings/language.settings.xml` has intentional local IDE changes — do not commit it.
 - Commits follow Conventional Commits (`feat:`, `chore:`, `docs:`).
+
+## Learning mode
+
+This is a learning project: the user wants to learn embedded development (STM32, peripherals, register-level programming) and understand how Claude works as an agent.
+
+- Before each step, briefly say what you are about to do and why (which file, which tool, what you expect to find).
+- When writing or changing code, explain the key lines: what each register/bit does and why these values were chosen (e.g. prescaler, period, clock source). Reference the relevant RM0368 (reference manual) / STM32F401 datasheet section when possible. HAL may be mentioned for comparison, but the driver itself stays register-level (CON-002).
+- Point out common embedded pitfalls related to the code (`volatile`, ISR timing, blocking calls, race conditions, read-modify-write on shared registers).
+- After finishing a task, give a short summary: what changed, what the user should understand from it, and one thing they could try themselves to deepen their understanding.
+- Prefer small steps over big changes, so the user can follow along.
+- If the user asks "why", explain in depth rather than just fixing things.
